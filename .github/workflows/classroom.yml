@@ -1,0 +1,85 @@
+name: Autograding Tests
+"on":
+  - push
+  - repository_dispatch
+  - workflow_dispatch
+permissions:
+  checks: write
+  actions: read
+  contents: read
+jobs:
+  run-autograding-tests:
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-classroom[bot]'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Hello World Modified
+        id: hello-world-modified
+        uses: classroom-resources/autograding-io-grader@v1
+        with:
+          test-name: Hello World Modified
+          command: |
+            make clean > /dev/null 2>&1
+            if ! make > /dev/null 2>&1; then
+              printf 'FAIL'
+              exit 0
+            fi
+            if [ ! -x ./main ]; then
+              printf 'FAIL'
+              exit 0
+            fi
+            ./main > .grader-stdout 2>/dev/null
+            printf 'Hello, world!\n' > .grader-expected
+            if cmp -s .grader-expected .grader-stdout; then
+              printf 'FAIL'
+            else
+              printf 'PASS'
+            fi
+          input: ""
+          expected-output: "PASS"
+          comparison-method: contains
+          timeout: 10
+          max-score: 100
+      - name: Autograding Reporter
+        uses: classroom-resources/autograding-grading-reporter@v1
+        continue-on-error: true
+        env:
+          HELLO-WORLD-MODIFIED_RESULTS: "${{steps.hello-world-modified.outputs.result}}"
+        with:
+          runners: hello-world-modified
+      - name: Export grade.json
+        if: always()
+        env:
+          IO_OUTCOME: ${{steps.hello-world-modified.outcome}}
+          IO_RESULT: ${{steps.hello-world-modified.outputs.result}}
+        run: |
+          python3 - <<'PY'
+          import json, os
+
+          ok = os.environ.get("IO_OUTCOME") == "success"
+          result = (os.environ.get("IO_RESULT") or "").strip()[:500]
+          grade = {
+              "score": 100 if ok else 0,
+              "max_score": 100,
+              "passed": 1 if ok else 0,
+              "total": 1,
+              "tests": [
+                  {
+                      "name": "Hello World Modified",
+                      "passed": ok,
+                      "message": result or ("output differs from original" if ok else "output unchanged"),
+                  }
+              ],
+          }
+          with open("grade.json", "w", encoding="utf-8") as fh:
+              json.dump(grade, fh, ensure_ascii=False)
+          print(json.dumps(grade, ensure_ascii=False))
+          PY
+      - name: Upload autograding result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autograding
+          path: grade.json
+          if-no-files-found: error
